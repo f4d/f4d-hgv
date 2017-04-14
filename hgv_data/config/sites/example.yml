@@ -1,0 +1,15 @@
+#> provision config for 'hgv_data/sites/example/'
+---
+wp:
+  enviro: example
+  hhvm_domains:
+    - hhvm.example.dev
+  php_domains:
+    - php5.example.dev
+    - php7.example.dev
+  #> name of the WP install on the WP Engine side
+  #wpe_name: example
+  #> git branch to push to by default
+  #branch: develop
+  #> remote endpoint environment to push to by default (staging or production)
+  #remote: staging

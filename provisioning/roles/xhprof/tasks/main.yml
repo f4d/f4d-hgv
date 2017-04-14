@@ -1,0 +1,40 @@
+---
+- name: Install XHprof
+  apt: name=php5-xhprof state=present
+  tags: [ 'profiling', 'xhprof' ]
+
+- name: Enable xhprof
+  command: php5enmod xhprof creates=/etc/php5/fpm/conf.d/20-xhprof.ini
+  notify: php5-fpm restart
+  tags: [ 'profiling', 'xhprof' ]
+
+- name: Get xhprof code
+  git: repo=git://github.com/preinheimer/xhprof.git dest={{ xhprof_root }} update=no
+  tags: [ 'profiling', 'xhprof' ]
+
+- name: Setup xhprof database
+  mysql_db: name=xhprof state=present
+  tags: [ 'profiling', 'xhprof' ]
+
+- name: Create the database table
+  mysql_db: name=xhprof state=import target="{{ ansible_env.PWD }}/roles/xhprof/files/install-db.sql"
+  tags: [ 'profiling', 'xhprof' ]
+
+- name: Install xhprof dependencies
+  apt: name={{ item }} state=present
+  with_items:
+    - graphviz
+  tags: [ 'profiling', 'xhprof' ]
+
+- name: Configure xhprof config.php
+  template: src=config.php dest={{ xhprof_root }}/xhprof_lib/config.php owner=root group=root mode=0644
+  tags: [ 'profiling', 'xhprof' ]
+
+- name: Configure Nginx xhprof.conf
+  template: src=etc/nginx/conf.d/xhprof.conf dest=/etc/nginx/conf.d/xhprof.conf owner=root group=root mode=0644
+  notify: nginx reload
+  tags: [ 'profiling', 'xhprof' ]
+
+- name: Configure ini
+  template: src=etc/php5/mods-available/xhprof.ini dest=/etc/php5/mods-available/xhprof.ini owner=root group=root mode=0644
+  tags: [ 'profiling', 'xhprof' ]

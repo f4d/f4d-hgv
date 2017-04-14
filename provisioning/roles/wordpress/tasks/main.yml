@@ -1,0 +1,157 @@
+---
+- name: "Provision {{ enviro }} WP Databases"
+  mysql_db:
+    name: "wpe_{{ enviro }}"
+    state: present
+  notify: import WPE database
+
+- name: "Ensure SQL dump directory exists"
+  file:
+    dest: "{{ wp_doc_root }}/sqldumps"
+    state: directory
+
+- name: "Check if SQL file exists"
+  stat: path="{{ wp_doc_root }}/sqldumps/wpe_{{ enviro }}.sql"
+  register: wp_sql
+
+- name: "Grant {{ enviro }} WP users access to WP DBs"
+  mysql_user: name="wpe_{{ enviro }}" priv="wpe_{{ enviro }}.*:ALL" host="%" password=wordpress state=present
+
+- name: "Grant {{ enviro }} WP users access to WP DBs"
+  mysql_user: name="wpe_{{ enviro }}" priv="wpe_{{ enviro }}.*:ALL" host="localhost" password=wordpress state=present
+
+- name: "Set up {{ enviro }} docroot"
+  file: path={{ wp_doc_root }}/{{ enviro }} state=directory owner={{ web_user }} group={{ web_group }}
+
+- name: "Download and install WordPress for {{ enviro }}"
+  command: /usr/local/bin/wp core download --path={{ wp_doc_root}}/{{ enviro }}
+  become: yes
+  become_user: "{{ web_user }}"
+  args:
+    creates: "{{ wp_doc_root }}/{{ enviro }}/license.txt"
+
+- name: Check whether {{ enviro }}/wp-config.php exists
+  stat:
+    path: "{{ wp_doc_root }}/{{ enviro }}/wp-config.php"
+  register: wpconfig
+
+- name: Check whether {{ enviro }}/wp-config.php is Ansible-managed
+  command: /bin/grep '^* Ansible managed' {{ wp_doc_root }}/{{ enviro }}/wp-config.php
+  register: wpansmgd
+  ignore_errors: yes
+  when: wpconfig.stat.exists
+
+- name: Fetch random salts for WordPress config
+  get_url:
+    dest: "{{ wp_doc_root }}/{{ enviro }}/wp-salts.php"
+    url: https://api.wordpress.org/secret-key/1.1/salt/
+
+- name: Make salts file a PHP file
+  lineinfile:
+    dest: "{{ wp_doc_root }}/{{ enviro }}/wp-salts.php"
+    insertbefore: BOF
+    line: <?php
+
+- name: "Create wp-config for {{ enviro }}"
+  template:
+    src: wp/wp-config.php
+    dest: "{{ wp_doc_root }}/{{ enviro }}/wp-config.php"
+    owner: "{{ web_user }}"
+    group: "{{ web_group }}"
+  when: not wpconfig.stat.exists
+
+- name: "Create new wp-config for {{ enviro }} and save original"
+  template:
+    src: wp/wp-config.php
+    dest: "{{ wp_doc_root }}/{{ enviro }}/wp-config.php"
+    owner: "{{ web_user }}"
+    group: "{{ web_group }}"
+    backup: yes
+  when: wpconfig.stat.exists and wpansmgd|failed
+
+- name: "Localconfig for {{ enviro }}"
+  template: src=wp/local-config.php dest={{ wp_doc_root }}/{{ enviro }}/local-config.php owner={{ web_user }} group={{ web_group }}
+
+- name: "Object Cache for {{ enviro }}"
+  template: src=wp/object-cache.php dest={{ wp_doc_root }}/{{ enviro }}/wp-content/object-cache.php owner={{ web_user }} group={{ web_group }}
+
+- name: "Check whether the WP install has been run previously"
+  command: /usr/local/bin/wp core is-installed --path={{ wp_doc_root }}/{{ enviro }}
+  become: yes
+  become_user: "{{ web_user }}"
+  ignore_errors: yes
+  register: wpnotinstalled
+
+- name: "Run the WP install for {{ enviro }}"
+  command: /usr/local/bin/wp core install --url={{ domain }} --title="WP Engine {{ enviro }} Site" --admin_user=wordpress --admin_password=wordpress --admin_email="admin@example.com"
+  become: yes
+  become_user: "{{ web_user }}"
+  args:
+    chdir: "{{ wp_doc_root }}/{{ enviro }}"
+  when: wpnotinstalled.rc and ( wp.multisite|default(False) == False )
+
+- name: "Run the multisite WP subdomain install for {{ enviro }}"
+  command: /usr/local/bin/wp core multisite-install --url={{ domain }} --title="WP Engine {{ enviro }} Site" --admin_user=wordpress --admin_password=wordpress --admin_email="admin@example.com" --subdomains
+  become: yes
+  become_user: "{{ web_user }}"
+  args:
+    chdir: "{{ wp_doc_root }}/{{ enviro }}"
+  when: wpnotinstalled.rc and ( wp.multisite|default(False) == "domain" )
+
+- name: "Run the multisite WP subdirectory install for {{ enviro }}"
+  command: /usr/local/bin/wp core multisite-install --url={{ domain }} --title="WP Engine {{ enviro }} Site" --admin_user=wordpress --admin_password=wordpress --admin_email="admin@example.com"
+  become: yes
+  become_user: "{{ web_user }}"
+  args:
+    chdir: "{{ wp_doc_root }}/{{ enviro }}"
+  when: wpnotinstalled.rc and ( wp.multisite|default(False) == "directory" )
+
+- name: "Install some useful plugins for {{ enviro }}"
+  command: /usr/local/bin/wp plugin install {{ item }}
+  become: yes
+  become_user: "{{ web_user }}"
+  with_flattened:
+    - "{{ wp.custom_plugins|default([]) }}"
+    - "{{ default_plugins }}"
+  args:
+      chdir: "{{ wp_doc_root }}/{{ enviro }}"
+      creates: "{{ wp_doc_root }}/{{ enviro }}/wp-content/plugins/{{ item }}"
+
+- name: "Install useful plugins from VCS repos for {{ enviro }}"
+  command: /usr/local/bin/wp plugin install {{ item.url }}
+  become: yes
+  become_user: "{{ web_user }}"
+  with_items: "{{ default_repo_plugins }}"
+  args:
+    chdir: "{{ wp_doc_root }}/{{ enviro }}"
+    creates: "{{ wp_doc_root }}/{{ enviro }}/wp-content/plugins/{{ item.slug }}"
+
+- name: "Set up {{ enviro }} virtualhost"
+  template: src=etc/nginx/conf.d/wordpress.conf dest=/etc/nginx/conf.d/www-{{ enviro }}.conf owner=root group=root mode=0644
+  notify: nginx reload
+
+- name: "Enable PML viewing for {{ enviro }}"
+  template: src=pimpmylog.json dest={{ wp_doc_root }}/admin/logs/config.user.d/{{ enviro }}.json
+  with_items:
+    - "{{ domain }}"
+
+- name: Must use plugin directory
+  file: path="{{ wp_doc_root }}/{{ enviro }}/wp-content/mu-plugins" state=directory owner={{ web_user }} group={{ web_group }}
+
+- name: Copy php-selector plugin into place
+  copy: src=php-selector dest="{{ wp_doc_root }}/{{ enviro }}/wp-content/mu-plugins/" owner={{ web_user }} group={{ web_user }} mode=0644
+
+- name: Enable php-selector must use plugin
+  copy:
+    src: "{{ wp_doc_root }}/{{ enviro }}/wp-content/mu-plugins/php-selector/php-selector.php"
+    dest: "{{ wp_doc_root }}/{{ enviro }}/wp-content/mu-plugins/"
+    owner: "{{ web_user }}"
+    group: "{{ web_user }}"
+    mode: 0644
+
+- name: "Back up {{ enviro }} WP database"
+  mysql_db:
+    name: wpe_{{ enviro }}
+    state: dump
+    target: "{{ wp_doc_root }}/sqldumps/wpe_{{ enviro }}.sql"
+  when: mysql_backup|bool and ( wpnotinstalled.rc == 0 )

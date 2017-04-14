@@ -1,0 +1,38 @@
+---
+
+nginx_listen_port: 80
+varnish_listen_port: 6081
+nginx_listen_port_http_to_fcgi: 8083
+
+varnish_version: 3.0
+phpmyadmin_version: 4.3.6-english
+wpcli_version: WP-CLI 0.18
+wp_doc_root: /nas/wp/www/sites
+vagrant_doc_root: /hgv_data/sites
+web_user: www-data
+web_group: www-data
+
+usr_config: /hgv_data/config
+usr_config_sites: /hgv_data/config/sites
+usr_config_provision: /hgv_data/config/provisioning
+
+xhprof_root: /opt/xhprof
+
+## Arbitrary max upload size. Fixes upload limit problems.
+file_upload_max_size: 200
+
+default_php: hhvm
+
+default_plugins:
+  - query-monitor
+  - debug-objects
+  - debug-queries
+  - debug-bar
+  - wordpress-importer
+  - user-switching
+  - rewrite-rules-inspector
+  - log-deprecated-notices
+
+default_repo_plugins:
+  - slug: S3-Uploads-0.9.0
+    url: "https://github.com/humanmade/S3-Uploads/archive/v0.9.0.zip"

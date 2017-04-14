@@ -1,0 +1,31 @@
+---
+- hosts: all
+  connection: local
+  become: yes
+
+  roles:
+    # Set up a WordPress endpoint served by HHVM and PHP-FPM.
+    - {
+        role: wordpress,
+        enviro: "{{ wp.enviro }}",
+        domain: "{{ wp.hhvm_domains[0] }}",
+        domains: "{{ wp.hhvm_domains }} + {{ wp.php_domains|default([]) }}",
+        mysql_import: "{{ wp.mysql_import | default(False) }}",
+        mysql_backup: "{{ wp.mysql_backup | default(False) }}",
+        tags: [ 'wordpress' ]
+      }
+    - {
+        role: listener,
+        enviro: "{{ wp.enviro }}",
+        backend: hhvm,
+        domain: "{{ wp.hhvm_domains }}",
+        tags: [ 'wordpress' ]
+      }
+    - {
+        role: listener,
+        enviro: "{{ wp.enviro }}",
+        backend: php,
+        domain: "{{ wp.php_domains }}",
+        tags: [ 'wordpress' ],
+        when: wp.php_domains is defined
+      }

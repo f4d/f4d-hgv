@@ -1,0 +1,90 @@
+---
+
+- name: Install PHP packages
+  apt: name={{ item }} state=present
+  with_items:
+      - php5
+      - php5-cli
+      - php5-curl
+      - php5-gd
+      - php5-fpm
+      - php5-memcache
+      - php5-memcached
+      - php5-xdebug
+      - php5-dev
+      - libyaml-dev
+
+- name: Install PECL modules
+  command: pecl install {{ item }}
+  register: pecl_result
+  changed_when: "'already installed' not in pecl_result.stdout"
+  failed_when: "'already installed' not in pecl_result.stdout and 'completed successfully' not in pecl_result.stdout"
+  with_items:
+    - yaml
+
+- name: Install PEAR modules
+  command: pear install {{ item }}
+  register: pear_result
+  changed_when: "'already installed' not in pear_result.stdout"
+  failed_when: "'already installed' not in pear_result.stdout and 'install ok' not in pear_result.stdout"
+  with_items:
+    - PHP_CodeSniffer
+
+- name: Install WordPress code sniffs
+  git:
+    repo: git://github.com/WordPress-Coding-Standards/WordPress-Coding-Standards.git
+    dest: /usr/share/php/wpcs
+    update: yes
+    accept_hostkey: yes
+
+- name: Enable WordPress code sniffs
+  command: phpcs --config-set installed_paths /usr/share/php/wpcs
+  
+- name: Register YAML module
+  lineinfile: state=present create=yes dest=/etc/php5/mods-available/yaml.ini line="extension=yaml.so" owner=root group=root mode=0644
+
+- name: Enable YAML module
+  command: php5enmod yaml creates=/etc/php5/fpm/conf.d/20-yaml.ini
+
+- name: Register Xdebug module
+  copy:
+    src: etc/php5/mods-available/xdebug.ini
+    dest: /etc/php5/mods-available/xdebug.ini
+    owner: root
+    group: root
+    mode: 0644
+  notify: php5-fpm restart
+  tags: [ 'php' ]
+
+- name: Enable Xdebug module
+  command: php5enmod xdebug creates=/etc/php5/fpm/conf.d/20-xdebug.ini
+  notify: php5-fpm restart
+  tags: [ 'php' ]
+
+# - name: Do fpm/php.ini
+#   template: src=etc/php5/fpm/php.ini dest=/etc/php5/fpm/php.ini owner=root group=root mode=0644
+#   notify: php5-fpm restart
+
+- name: Set the max file upload size
+  ini_file:
+    dest: /etc/php5/fpm/php.ini
+    section: "PHP"
+    option: "{{ item }}"
+    value: "{{ file_upload_max_size }}M"
+  with_items:
+    - upload_max_filesize
+    - post_max_size
+
+- include: php56.yml
+- include: php70.yml
+- include: php71.yml
+
+# Set the alternatives deliberately, so that 5.6 or 7.0 doesn't override
+- name: Set PHP 5.5 bin as default
+  alternatives: name=php link=/usr/bin/php path=/usr/bin/php5
+
+- name: Set PHP 5.5 config as default
+  alternatives: name=php-config link=/usr/bin/php-config path=/usr/bin/php-config5
+
+- name: Set PHP 5.5 ize as default
+  alternatives: name=phpize link=/usr/bin/phpize path=/usr/bin/phpize5
